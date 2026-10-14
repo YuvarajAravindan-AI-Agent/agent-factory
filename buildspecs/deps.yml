@@ -1,0 +1,14 @@
+version: 0.2
+# Stage 1 (internet): fetch wheels only. --only-binary means no setup.py from any package runs.
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+  build:
+    commands:
+      - test -f requirements.txt || touch requirements.txt
+      - python -m pip download --only-binary=:all: -d wheelhouse -r requirements.txt pytest
+      - ls wheelhouse | head -50
+artifacts:
+  files:
+    - wheelhouse/**/*

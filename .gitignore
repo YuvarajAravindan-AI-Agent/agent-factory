@@ -1,0 +1,7 @@
+.venv/
+build/
+infra/.terraform/
+infra/terraform.tfstate*
+infra/.terraform.lock.hcl.bak
+__pycache__/
+*.zip

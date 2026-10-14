@@ -1,0 +1,15 @@
+version: 0.2
+# Stage 2 (no internet): install from the wheelhouse only, then run the test suite.
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+  build:
+    commands:
+      - test -f requirements.txt || touch requirements.txt
+      - python -m pip install --no-index --find-links "$CODEBUILD_SRC_DIR_deps/wheelhouse" -r requirements.txt pytest
+      - mkdir -p reports
+      - python -m pytest -q --junitxml=reports/junit.xml
+artifacts:
+  files:
+    - reports/**/*

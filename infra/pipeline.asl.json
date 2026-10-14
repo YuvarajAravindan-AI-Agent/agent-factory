@@ -1,0 +1,678 @@
+{
+  "Comment": "Agent factory: spec -> plan -> code -> tests (Code Interpreter) -> no-internet CodeBuild -> review -> docs -> guardrails -> human approval",
+  "StartAt": "GuardInput",
+  "States": {
+    "GuardInput": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "guard",
+          "run_id.$": "$.run_id",
+          "stage": "input"
+        }
+      },
+      "ResultSelector": {
+        "r.$": "$.Payload"
+      },
+      "ResultPath": "$.guard_in",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "ThrottlingException"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "InputAllowed?"
+    },
+    "InputAllowed?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.guard_in.r.blocked",
+          "BooleanEquals": true,
+          "Next": "InputBlocked"
+        }
+      ],
+      "Default": "Architect"
+    },
+    "InputBlocked": {
+      "Type": "Fail",
+      "Error": "GuardrailBlockedInput",
+      "Cause": "The spec was blocked by the input guardrail (prompt attack or real identifiers)."
+    },
+    "Architect": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "architect",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt": 1
+        }
+      },
+      "ResultPath": "$.architect",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "Coder"
+    },
+    "Coder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "coder",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt": 1
+        }
+      },
+      "ResultPath": "$.coder",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "InitCounters"
+    },
+    "InitCounters": {
+      "Type": "Pass",
+      "Result": {
+        "test": 1,
+        "build": 1,
+        "review": 1
+      },
+      "ResultPath": "$.n",
+      "Next": "Tester"
+    },
+    "Tester": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "tester",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt.$": "$.n.test"
+        }
+      },
+      "ResultPath": "$.tester",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "TestsGreen?"
+    },
+    "TestsGreen?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.tester.tests_ok",
+          "BooleanEquals": true,
+          "Next": "BuildDeps"
+        },
+        {
+          "Variable": "$.n.test",
+          "NumericGreaterThanEquals": 3,
+          "Next": "TestsNeverPassed"
+        }
+      ],
+      "Default": "FixTests"
+    },
+    "FixTests": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "fixer",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt.$": "$.n.test",
+          "failure_log.$": "$.tester.test_tail"
+        }
+      },
+      "ResultPath": "$.fix",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "NextTestAttempt"
+    },
+    "NextTestAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "test.$": "States.MathAdd($.n.test, 1)",
+        "build.$": "$.n.build",
+        "review.$": "$.n.review"
+      },
+      "ResultPath": "$.n",
+      "Next": "Tester"
+    },
+    "TestsNeverPassed": {
+      "Type": "Fail",
+      "Error": "TestsFailed",
+      "Cause": "Tests still failing after 3 fix attempts. See runs/<id>/logs in the workspace bucket."
+    },
+    "BuildDeps": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${deps}",
+        "SourceLocationOverride.$": "States.Format('${bucket}/runs/{}/workspace.zip', $.run_id)",
+        "ArtifactsOverride": {
+          "Type": "S3",
+          "Location": "${bucket}",
+          "Path.$": "States.Format('runs/{}', $.run_id)",
+          "Name": "deps.zip",
+          "Packaging": "ZIP",
+          "NamespaceType": "NONE"
+        }
+      },
+      "ResultSelector": {
+        "id.$": "$.Build.Id",
+        "status.$": "$.Build.BuildStatus"
+      },
+      "ResultPath": "$.deps",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.build_err",
+          "Next": "ReadBuildLog"
+        }
+      ],
+      "Next": "BuildTest"
+    },
+    "BuildTest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::codebuild:startBuild.sync",
+      "Parameters": {
+        "ProjectName": "${test}",
+        "SourceLocationOverride.$": "States.Format('${bucket}/runs/{}/workspace.zip', $.run_id)",
+        "SecondarySourcesOverride": [
+          {
+            "Type": "S3",
+            "Location.$": "States.Format('${bucket}/runs/{}/deps.zip', $.run_id)",
+            "SourceIdentifier": "deps"
+          }
+        ],
+        "ArtifactsOverride": {
+          "Type": "S3",
+          "Location": "${bucket}",
+          "Path.$": "States.Format('runs/{}', $.run_id)",
+          "Name": "test-report.zip",
+          "Packaging": "ZIP",
+          "NamespaceType": "NONE"
+        }
+      },
+      "ResultSelector": {
+        "id.$": "$.Build.Id",
+        "status.$": "$.Build.BuildStatus"
+      },
+      "ResultPath": "$.build",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.build_err",
+          "Next": "ReadBuildLog"
+        }
+      ],
+      "Next": "Reviewer"
+    },
+    "ReadBuildLog": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "buildlog",
+          "run_id.$": "$.run_id",
+          "error.$": "$.build_err"
+        }
+      },
+      "ResultSelector": {
+        "r.$": "$.Payload"
+      },
+      "ResultPath": "$.buildlog",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "ThrottlingException"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "RetryBuild?"
+    },
+    "RetryBuild?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.n.build",
+          "NumericGreaterThanEquals": 2,
+          "Next": "BuildNeverPassed"
+        }
+      ],
+      "Default": "FixBuild"
+    },
+    "FixBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "fixer",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt.$": "$.n.build",
+          "failure_log.$": "$.buildlog.r.log"
+        }
+      },
+      "ResultPath": "$.fix",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "NextBuildAttempt"
+    },
+    "NextBuildAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "test": 1,
+        "build.$": "States.MathAdd($.n.build, 1)",
+        "review.$": "$.n.review"
+      },
+      "ResultPath": "$.n",
+      "Next": "Tester"
+    },
+    "BuildNeverPassed": {
+      "Type": "Fail",
+      "Error": "SandboxBuildFailed",
+      "Cause": "The no-internet CodeBuild sandbox still fails after a fix attempt. See codebuild-logs/ in the workspace bucket."
+    },
+    "Reviewer": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "reviewer",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt.$": "$.n.review"
+        }
+      },
+      "ResultPath": "$.reviewer",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "Blocking?"
+    },
+    "Blocking?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.reviewer.blocking",
+              "NumericGreaterThan": 0
+            },
+            {
+              "Variable": "$.n.review",
+              "NumericLessThan": 2
+            }
+          ],
+          "Next": "FixFindings"
+        },
+        {
+          "Variable": "$.reviewer.blocking",
+          "NumericGreaterThan": 0,
+          "Next": "FindingsRemain"
+        }
+      ],
+      "Default": "Docs"
+    },
+    "FixFindings": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "fixer",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt.$": "$.n.review",
+          "failure_log.$": "$.reviewer.summary"
+        }
+      },
+      "ResultPath": "$.fix",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "NextReviewAttempt"
+    },
+    "NextReviewAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "test": 1,
+        "build": 1,
+        "review.$": "States.MathAdd($.n.review, 1)"
+      },
+      "ResultPath": "$.n",
+      "Next": "Tester"
+    },
+    "FindingsRemain": {
+      "Type": "Fail",
+      "Error": "BlockingFindings",
+      "Cause": "Critical/high review findings remain after a fix round. See docs/REVIEW.md."
+    },
+    "Docs": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "invoke",
+          "role": "docs",
+          "run_id.$": "$.run_id",
+          "task_token.$": "$$.Task.Token",
+          "attempt": 1
+        }
+      },
+      "ResultPath": "$.docs",
+      "TimeoutSeconds": 5400,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "States.Timeout"
+          ],
+          "MaxAttempts": 1,
+          "IntervalSeconds": 30
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "AgentStepFailed"
+        }
+      ],
+      "Next": "GuardOutput"
+    },
+    "GuardOutput": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "guard",
+          "run_id.$": "$.run_id",
+          "stage": "output"
+        }
+      },
+      "ResultSelector": {
+        "r.$": "$.Payload"
+      },
+      "ResultPath": "$.guard_out",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "ThrottlingException"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "OutputAllowed?"
+    },
+    "OutputAllowed?": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.guard_out.r.blocked",
+          "BooleanEquals": true,
+          "Next": "OutputBlocked"
+        }
+      ],
+      "Default": "Package"
+    },
+    "OutputBlocked": {
+      "Type": "Fail",
+      "Error": "GuardrailBlockedOutput",
+      "Cause": "Generated documentation contains identifiers the guardrail blocks."
+    },
+    "Package": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "package",
+          "run_id.$": "$.run_id"
+        }
+      },
+      "ResultSelector": {
+        "r.$": "$.Payload"
+      },
+      "ResultPath": "$.package",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "ThrottlingException"
+          ],
+          "MaxAttempts": 3,
+          "IntervalSeconds": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "AwaitApproval"
+    },
+    "AwaitApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${tasks_fn}",
+        "Payload": {
+          "op": "notify",
+          "run_id.$": "$.run_id",
+          "package_url.$": "$.package.r.url",
+          "task_token.$": "$$.Task.Token"
+        }
+      },
+      "TimeoutSeconds": 604800,
+      "ResultPath": "$.approval",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "Rejected"
+          ],
+          "ResultPath": "$.error",
+          "Next": "RejectedByHuman"
+        },
+        {
+          "ErrorEquals": [
+            "States.Timeout"
+          ],
+          "ResultPath": "$.error",
+          "Next": "ApprovalExpired"
+        }
+      ],
+      "Next": "Approved"
+    },
+    "RejectedByHuman": {
+      "Type": "Fail",
+      "Error": "Rejected",
+      "Cause": "The approver rejected this run."
+    },
+    "ApprovalExpired": {
+      "Type": "Fail",
+      "Error": "ApprovalExpired",
+      "Cause": "No decision within 7 days."
+    },
+    "Approved": {
+      "Type": "Succeed",
+      "Comment": "Phase 2 will deploy into a throwaway sandbox account here."
+    },
+    "AgentStepFailed": {
+      "Type": "Fail",
+      "Error": "AgentStepFailed",
+      "CausePath": "$.error.Cause"
+    }
+  }
+}
