@@ -61,7 +61,7 @@ Diagram: `docs/diagrams/agent-factory-flow.html` (open in a browser).
 ## 4. Rebuild from scratch
 
 1. AWS credentials with admin rights (the project used the `enterprises` profile).
-2. Gateway: deploy `vertex-gateway` on Cloud Run (separate repo, see section 7), then run
+2. Gateway: deploy `vertex-gateway` on Cloud Run (separate private repo, see section 7), then run
    `scripts/setup-gateway-token.sh` to create the per-client token in Secrets Manager.
 3. `scripts/package_agent.sh` (needs `uv`) builds `build/agent.zip`.
 4. Terraform backend, then apply:
@@ -102,11 +102,14 @@ If the tfstate bucket is gone, create it first (see `scripts/migrate-state.sh`) 
 
 ## 7. What is NOT in this repo
 
-- `vertex-gateway`: the Cloud Run service (a separate project, kept on the owner's laptop at
-  `~/Projects/vertex-gateway` according to `scripts/setup-gateway-token.sh`). It has other clients.
-  Keep a private copy of that repo. Its service config can be exported with
-  `gcloud run services describe vertex-gateway --region us-central1 --format export`, but that output
-  contains environment variables including tokens, so store it privately and never commit it.
+- `vertex-gateway`: the Cloud Run service (a separate project with other clients, deployed in its own
+  GCP project, region us-central1). Its source is in the private repo
+  `YuvarajAravindan-AI-Agent/vertex-gateway` (Dockerfile, `main.py`, `requirements.txt`), pushed on
+  2026-10-14; it was not under version control before that. The deployed service config is not in git:
+  export it with `gcloud run services describe vertex-gateway --region us-central1 --project <project-id>
+  --format export`. That output contains environment variables including tokens, so keep it private and
+  never commit it. At last check the service had a maximum of 3 instances and no minimum, so it should
+  scale to zero when idle.
 - Terraform state: in the versioned tfstate bucket, not in git.
 - Run outputs (generated code, logs): in the workspace bucket and expire after 30 days.
 - The secret value in Secrets Manager.
