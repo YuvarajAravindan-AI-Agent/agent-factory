@@ -6,11 +6,12 @@ up to 8 h) and reports back with SendTaskSuccess/SendTaskFailure. No step is bou
 15-minute limit."""
 import json
 import threading
+import traceback
 
 import boto3
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
-from roles import run_role
+from roles import describe, run_role
 
 app = BedrockAgentCoreApp()
 sfn = boto3.client("stepfunctions")
@@ -27,7 +28,8 @@ def handler(payload, context=None):
         try:
             sfn.send_task_success(taskToken=token, output=json.dumps(run_role(payload)))
         except Exception as e:  # report every failure so the workflow never hangs
-            sfn.send_task_failure(taskToken=token, error=type(e).__name__[:256], cause=str(e)[:30000])
+            sfn.send_task_failure(taskToken=token, error=type(e).__name__[:256],
+                                  cause=(describe(e) + "\n" + traceback.format_exc())[-30000:])
         finally:
             app.complete_async_task(task_id)
 

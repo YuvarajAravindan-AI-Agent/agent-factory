@@ -58,6 +58,28 @@ steps). Keep them accurate to the code; do not change code."""),
 }
 
 
+RETRYABLE_TEXT = ("model turn", "429", "500", "502", "503", "504", "RESOURCE_EXHAUSTED", "UNAVAILABLE",
+                  "timed out", "timeout", "connection", "disconnected", "reset by peer")
+RETRYABLE_TYPES = ("Timeout", "ConnectError", "ReadError", "RemoteProtocolError", "ConnectionError",
+                   "ServerError")
+
+
+def describe(e: BaseException) -> str:
+    """Type + message for e and everything it wraps. Strands wraps model errors in EventLoopException
+    whose str() is empty when the inner error (e.g. an HTTP timeout) has no message."""
+    parts, seen = [], set()
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        parts.append(f"{type(e).__name__}: {e}")
+        e = getattr(e, "original_exception", None) or e.__cause__ or e.__context__
+    return " <- ".join(parts)
+
+
+def is_transient(e: BaseException) -> bool:
+    d = describe(e)
+    return any(k.lower() in d.lower() for k in RETRYABLE_TEXT + RETRYABLE_TYPES)
+
+
 def _ws_key(run_id: str) -> str:
     return f"runs/{run_id}/workspace.zip"
 
@@ -130,11 +152,11 @@ def run_role(payload: dict) -> dict:
                 break
             except Exception as e:  # noqa: BLE001
                 last = e
-                if not any(k in str(e) for k in ("model turn", "429", "500", "503", "RESOURCE_EXHAUSTED", "UNAVAILABLE")):
+                if not is_transient(e):
                     raise
                 time.sleep(10 * n)
         if last is not None:
-            raise last
+            raise RuntimeError(f"model call failed after 3 attempts: {describe(last)}") from last
         # Deterministic gate, independent of what the model claims.
         sb.pull_dir(local)
         sb.install_requirements(local / "requirements.txt")
