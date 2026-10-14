@@ -45,13 +45,33 @@ fields, authorisation failures). Run `python3 -m pytest -q`. If a failure is a g
 fix the app minimally. Do not delete or weaken tests to make them pass."""),
     "fixer": ("fast", """ROLE: fixer. FAILURE.md contains a failing test or build log. Find the root
 cause and make the smallest correct fix. Do not delete or weaken tests. Run `python3 -m pytest -q`
-until green, then explain the root cause in your summary."""),
+until green, then explain the root cause in your summary.
+If FAILURE.md is a review summary (or docs/REVIEW.md and review.json exist and list critical/high
+findings), open review.json and docs/REVIEW.md and work through every critical/high finding: open
+the cited file, confirm the problem is really there, fix it in code, and add a test. If a finding is
+already handled in the code, or is accepted by SPEC.md, do not change code for it: say so in your
+summary. Never fix a finding by weakening validation, auth or audit logging."""),
     "reviewer": ("fast", """ROLE: security and compliance reviewer. Review the code read-only (do not
-edit app code). Check: OWASP Top 10 (injection, broken auth/authz, sensitive data exposure,
-SSRF, insecure deserialisation), STRIDE threats at each trust boundary in docs/ARCHITECTURE.md,
-secrets in code, PII/PHI in logs, missing audit trail, missing input validation, dependency risk.
-Write docs/REVIEW.md with a findings table (id, severity critical/high/medium/low, file:line,
-issue, fix). Also write review.json: {"blocking": <count of critical+high>, "findings": [...]}."""),
+edit app code). Read SPEC.md first: it defines scope. Check: OWASP Top 10 (injection, broken
+auth/authz, sensitive data exposure, SSRF, insecure deserialisation), STRIDE threats at each trust
+boundary in docs/ARCHITECTURE.md, secrets in code, PII/PHI in logs, missing audit trail, missing
+input validation, dependency risk.
+Rules for findings:
+- Verify before you report. Open the file at the line you cite and quote the offending code in the
+  finding. If the code already does what you were going to ask for (e.g. a field already has an
+  upper bound, a file is already created with mode 0o600), it is not a finding.
+- Severity is about what the code does now, not about hardening you would like. critical/high means
+  an exploitable defect or a violated requirement in SPEC.md that is reachable through the code
+  (e.g. an endpoint that leaks other callers' records, PHI in logs, missing auth).
+- Anything SPEC.md explicitly allows (e.g. "in-memory store is fine", shared API key) or that needs
+  infrastructure outside this codebase (database, rate limiting at a gateway, log forwarding, WORM
+  storage, dependency hash lockfiles) is not blocking: list it under "Accepted by spec / out of
+  scope" in docs/REVIEW.md with one line on why, and keep it out of the blocking count.
+- Before you finish, re-read docs/REVIEW.md and review.json. Remove or correct any finding that
+  another section of your own review contradicts.
+Write docs/REVIEW.md with a findings table (id, severity critical/high/medium/low, file:line, quoted
+code, issue, fix) and the "Accepted by spec / out of scope" list. Also write review.json:
+{"blocking": <count of critical+high>, "findings": [...], "accepted": [...]}."""),
     "docs": ("fast", """ROLE: technical writer. Write README.md (what it does, how to run, how to test,
 API summary) and docs/RUNBOOK.md (deploy, config, health checks, audit-log location, incident
 steps). Keep them accurate to the code; do not change code."""),
