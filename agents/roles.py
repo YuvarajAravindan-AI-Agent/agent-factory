@@ -38,7 +38,10 @@ minimisation, TRAI/consent). Lock decisions; list explicit non-goals. Write NO a
     "coder": ("strong", """ROLE: coder. Implement docs/PLAN.md exactly: application code under app/,
 requirements.txt (pinned, minimal), and starter tests under tests/ covering each acceptance
 criterion. Include structured audit logging for every state-changing action and input validation
-on every endpoint. Run `python3 -m pytest -q` and fix what you broke before finishing."""),
+on every endpoint. Create audit and log files with `os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+0o600)` and their directories with mode 0o700, so permissions are restrictive from creation and never
+depend on the process umask; add a test that checks the file mode. Run `python3 -m pytest -q` and fix
+what you broke before finishing."""),
     "tester": ("fast", """ROLE: tester. Read docs/PLAN.md acceptance criteria and the code. Add or fix
 tests in tests/ so every criterion has at least one test, plus edge cases (bad input, missing
 fields, authorisation failures). Run `python3 -m pytest -q`. If a failure is a genuine app bug,
