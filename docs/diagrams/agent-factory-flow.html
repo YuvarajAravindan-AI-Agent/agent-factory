@@ -1,0 +1,110 @@
+<title>Agent Factory Flow</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Mono:wght@400&display=swap">
+<style>
+/* Layout: one tall flow diagram, main path down the middle, retries left, stops right. Then a short table. */
+:root{--bg:#f6f7f8;--fg:#1c2127;--muted:#5d6670;--line:#aeb6be;--panel:#ffffff;
+--agent:#dbe8f5;--agent-b:#3f6f9f;--gate:#e6e9ec;--gate-b:#7b8791;--human:#fbe7c4;--human-b:#b27a1c;
+--fail:#f8dcd8;--fail-b:#b5483b;--ok:#d9eedb;--ok-b:#3d8346;--fixer:#ece4f3;--fixer-b:#7d5a9b;
+--sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#14181c;--fg:#e4e8ec;--muted:#9aa4ae;--line:#4a535c;--panel:#1b2025;
+--agent:#1f3347;--agent-b:#6fa3d4;--gate:#252b31;--gate-b:#86919c;--human:#40301a;--human-b:#d6a04a;
+--fail:#40201c;--fail-b:#e0796c;--ok:#1d3520;--ok-b:#73b57b;--fixer:#2c2336;--fixer-b:#b093cc;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14181c;--fg:#e4e8ec;--muted:#9aa4ae;--line:#4a535c;--panel:#1b2025;
+--agent:#1f3347;--agent-b:#6fa3d4;--gate:#252b31;--gate-b:#86919c;--human:#40301a;--human-b:#d6a04a;
+--fail:#40201c;--fail-b:#e0796c;--ok:#1d3520;--ok-b:#73b57b;--fixer:#2c2336;--fixer-b:#b093cc;color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.5;
+padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+main{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:26px;line-height:1.2;margin:0 0 6px;text-wrap:balance}
+p{margin:0} .lede{color:var(--muted);max-width:62ch}
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.legend i{width:14px;height:14px;border-radius:3px;border:1.5px solid;display:inline-block}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto}
+figure svg{display:block;width:100%;min-width:640px;height:auto;color:var(--fg)}
+figcaption{font-size:13px;color:var(--muted);margin-top:10px;min-width:0}
+.n rect{stroke-width:1.5} .t{font:600 13px var(--sans);fill:var(--fg)} .s{font:400 10.5px var(--sans);fill:var(--muted)}
+.l{font:400 10.5px var(--mono);fill:var(--muted)}
+.a{stroke:currentColor;stroke-width:1.5;fill:none} .dash{stroke-dasharray:4 3}
+.input rect{fill:var(--panel);stroke:var(--fg)} .agent rect{fill:var(--agent);stroke:var(--agent-b)}
+.gate rect{fill:var(--gate);stroke:var(--gate-b)} .human rect{fill:var(--human);stroke:var(--human-b)}
+.fixer rect{fill:var(--fixer);stroke:var(--fixer-b)} .fail rect{fill:var(--fail);stroke:var(--fail-b)} .ok rect{fill:var(--ok);stroke:var(--ok-b)}
+h2{font-size:17px;margin:0 0 10px}
+.tw{overflow-x:auto} table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-top:1px solid var(--line)}
+th{font-weight:600;width:28%} td:nth-child(2){min-width:220px}
+.tag{font:400 12px var(--mono);color:var(--muted);white-space:nowrap}
+</style>
+<main>
+<header><h1>Agent Factory Flow</h1>
+<p class="lede">What happens to a spec between “start run” and “approve”. Each box is a Step Functions state in the <code>af-pipeline</code> state machine.</p></header>
+<div class="legend" aria-label="Legend">
+<span><i style="background:var(--agent);border-color:var(--agent-b)"></i>AI agent</span>
+<span><i style="background:var(--gate);border-color:var(--gate-b)"></i>AWS service or check</span>
+<span><i style="background:var(--fixer);border-color:var(--fixer-b)"></i>Fixer (retry)</span>
+<span><i style="background:var(--human);border-color:var(--human-b)"></i>Human</span>
+<span><i style="background:var(--fail);border-color:var(--fail-b)"></i>Run stops</span>
+<span><i style="background:var(--ok);border-color:var(--ok-b)"></i>Success</span></div>
+<figure><svg viewBox="0 0 760 966" role="img" aria-label="Agent Factory pipeline: a spec passes input guardrails, then architect, coder, tester, two sandboxed builds, reviewer, docs, output guardrails and packaging, and waits for a human approval; failures loop through a fixer a limited number of times or stop the run.">
+<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="currentColor"/></marker></defs>
+<g class="n input"><rect x="230" y="24" width="250" height="46" rx="6"/><text x="355" y="43" class="t" text-anchor="middle">Spec in</text><text x="355" y="60" class="s" text-anchor="middle">you upload the spec and start a run</text></g>
+<g class="n gate"><rect x="230" y="100" width="250" height="46" rx="6"/><text x="355" y="119" class="t" text-anchor="middle">Guardrail: input</text><text x="355" y="136" class="s" text-anchor="middle">Bedrock Guardrails scan the spec</text></g>
+<g class="n agent"><rect x="230" y="176" width="250" height="46" rx="6"/><text x="355" y="195" class="t" text-anchor="middle">Architect</text><text x="355" y="212" class="s" text-anchor="middle">plan, architecture, regulation mapping</text></g>
+<g class="n agent"><rect x="230" y="252" width="250" height="46" rx="6"/><text x="355" y="271" class="t" text-anchor="middle">Coder</text><text x="355" y="288" class="s" text-anchor="middle">application code and starter tests</text></g>
+<g class="n agent"><rect x="230" y="328" width="250" height="46" rx="6"/><text x="355" y="347" class="t" text-anchor="middle">Tester</text><text x="355" y="364" class="s" text-anchor="middle">adds tests, runs pytest</text></g>
+<g class="n gate"><rect x="230" y="404" width="250" height="46" rx="6"/><text x="355" y="423" class="t" text-anchor="middle">Build: wheels</text><text x="355" y="440" class="s" text-anchor="middle">CodeBuild, internet, wheels only</text></g>
+<g class="n gate"><rect x="230" y="480" width="250" height="46" rx="6"/><text x="355" y="499" class="t" text-anchor="middle">Build: tests</text><text x="355" y="516" class="s" text-anchor="middle">CodeBuild, no internet, pytest</text></g>
+<g class="n agent"><rect x="230" y="556" width="250" height="46" rx="6"/><text x="355" y="575" class="t" text-anchor="middle">Reviewer</text><text x="355" y="592" class="s" text-anchor="middle">security and compliance review</text></g>
+<g class="n agent"><rect x="230" y="632" width="250" height="46" rx="6"/><text x="355" y="651" class="t" text-anchor="middle">Docs</text><text x="355" y="668" class="s" text-anchor="middle">README and runbook</text></g>
+<g class="n gate"><rect x="230" y="708" width="250" height="46" rx="6"/><text x="355" y="727" class="t" text-anchor="middle">Guardrail: output</text><text x="355" y="744" class="s" text-anchor="middle">Bedrock Guardrails scan the docs</text></g>
+<g class="n gate"><rect x="230" y="784" width="250" height="46" rx="6"/><text x="355" y="803" class="t" text-anchor="middle">Package</text><text x="355" y="820" class="s" text-anchor="middle">zip to S3, 7-day download link</text></g>
+<g class="n human"><rect x="230" y="860" width="250" height="46" rx="6"/><text x="355" y="879" class="t" text-anchor="middle">Approval</text><text x="355" y="896" class="s" text-anchor="middle">email with approve / reject links</text></g>
+<line class="a" x1="355" y1="70" x2="355" y2="99" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="146" x2="355" y2="175" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="222" x2="355" y2="251" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="298" x2="355" y2="327" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="374" x2="355" y2="403" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="450" x2="355" y2="479" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="526" x2="355" y2="555" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="602" x2="355" y2="631" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="678" x2="355" y2="707" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="754" x2="355" y2="783" marker-end="url(#ah)"/>
+<line class="a" x1="355" y1="830" x2="355" y2="859" marker-end="url(#ah)"/>
+<g class="n fixer"><rect x="20" y="328" width="170" height="46" rx="6"/><text x="105" y="347" class="t" text-anchor="middle">Fixer</text><text x="105" y="364" class="s" text-anchor="middle">then re-run tests, up to 3 tries</text></g>
+<line class="a dash" x1="230" y1="351" x2="192" y2="351" marker-end="url(#ah)"/>
+<text x="210" y="345" class="l" text-anchor="middle">fails</text>
+<g class="n fixer"><rect x="20" y="480" width="170" height="46" rx="6"/><text x="105" y="499" class="t" text-anchor="middle">Fixer</text><text x="105" y="516" class="s" text-anchor="middle">then back to Tester, 1 try</text></g>
+<line class="a dash" x1="230" y1="503" x2="192" y2="503" marker-end="url(#ah)"/>
+<text x="210" y="497" class="l" text-anchor="middle">fails</text>
+<g class="n fixer"><rect x="20" y="556" width="170" height="46" rx="6"/><text x="105" y="575" class="t" text-anchor="middle">Fixer</text><text x="105" y="592" class="s" text-anchor="middle">then back to Tester, 1 round</text></g>
+<line class="a dash" x1="230" y1="579" x2="192" y2="579" marker-end="url(#ah)"/>
+<text x="210" y="573" class="l" text-anchor="middle">fails</text>
+<g class="n fail"><rect x="550" y="108" width="190" height="30" rx="6"/><text x="645" y="121" class="t" text-anchor="middle">Run stops</text><text x="645" y="133" class="s" text-anchor="middle">input blocked</text></g>
+<line class="a" x1="480" y1="123" x2="548" y2="123" marker-end="url(#ah)"/>
+<text x="515" y="118" class="l" text-anchor="middle">blocked</text>
+<g class="n fail"><rect x="550" y="336" width="190" height="30" rx="6"/><text x="645" y="349" class="t" text-anchor="middle">Run stops</text><text x="645" y="361" class="s" text-anchor="middle">tests still red after 3 fixes</text></g>
+<line class="a" x1="480" y1="351" x2="548" y2="351" marker-end="url(#ah)"/>
+<text x="515" y="346" class="l" text-anchor="middle">3rd fail</text>
+<g class="n fail"><rect x="550" y="488" width="190" height="30" rx="6"/><text x="645" y="501" class="t" text-anchor="middle">Run stops</text><text x="645" y="513" class="s" text-anchor="middle">build still fails after 1 fix</text></g>
+<line class="a" x1="480" y1="503" x2="548" y2="503" marker-end="url(#ah)"/>
+<text x="515" y="498" class="l" text-anchor="middle">2nd fail</text>
+<g class="n fail"><rect x="550" y="564" width="190" height="30" rx="6"/><text x="645" y="577" class="t" text-anchor="middle">Run stops</text><text x="645" y="589" class="s" text-anchor="middle">critical/high findings remain</text></g>
+<line class="a" x1="480" y1="579" x2="548" y2="579" marker-end="url(#ah)"/>
+<text x="515" y="574" class="l" text-anchor="middle">still blocked</text>
+<g class="n fail"><rect x="550" y="716" width="190" height="30" rx="6"/><text x="645" y="729" class="t" text-anchor="middle">Run stops</text><text x="645" y="741" class="s" text-anchor="middle">output blocked</text></g>
+<line class="a" x1="480" y1="731" x2="548" y2="731" marker-end="url(#ah)"/>
+<text x="515" y="726" class="l" text-anchor="middle">blocked</text>
+<g class="n ok"><rect x="550" y="824" width="190" height="30" rx="6"/><text x="645" y="837" class="t" text-anchor="middle">Approved</text><text x="645" y="849" class="s" text-anchor="middle">run succeeds</text></g>
+<polyline class="a" points="480,883 510,883 510,839 548,839" marker-end="url(#ah)"/>
+<text x="514" y="834" class="l" text-anchor="start">approve</text>
+<g class="n fail"><rect x="550" y="868" width="190" height="30" rx="6"/><text x="645" y="881" class="t" text-anchor="middle">Rejected</text><text x="645" y="893" class="s" text-anchor="middle">run stops</text></g>
+<line class="a" x1="480" y1="883" x2="548" y2="883" marker-end="url(#ah)"/>
+<text x="515" y="878" class="l" text-anchor="middle">reject</text>
+<g class="n fail"><rect x="550" y="912" width="190" height="30" rx="6"/><text x="645" y="925" class="t" text-anchor="middle">Expired</text><text x="645" y="937" class="s" text-anchor="middle">no answer in 7 days</text></g>
+<polyline class="a" points="480,883 510,883 510,927 548,927" marker-end="url(#ah)"/>
+<text x="514" y="922" class="l" text-anchor="start">7 days</text>
+</svg>
+<figcaption>The main path runs top to bottom. Dashed arrows go to the Fixer and back into the Tester. Either build stage can send a run to its Fixer. The Reviewer gets one fix round only, so a second blocking review stops the run.</figcaption></figure>
+<section><h2>What each part does</h2><div class="tw"><table><tbody><tr><th scope=row>Guardrail</th><td>Bedrock Guardrails scan the spec before any agent sees it, and scan the generated docs before anything is packaged.</td><td><span class='tag'>AWS service</span></td></tr><tr><th scope=row>Architect, Coder, Tester, Reviewer, Docs, Fixer</th><td>Each is an AI agent (Strands) running on AgentCore Runtime. Each works in a Code Interpreter sandbox with no internet. Step Functions waits for the agent to report back.</td><td><span class='tag'>AI agent</span></td></tr><tr><th scope=row>Build: wheels, then tests</th><td>Two CodeBuild jobs run the tests independent of the agent. The first may use the internet to fetch wheels only; the second has no internet and installs from that wheelhouse.</td><td><span class='tag'>Gate, not AI</span></td></tr><tr><th scope=row>Fixer</th><td>Only runs when something fails. It reads the failure log or the review findings, fixes the code, and the run goes back to the Tester.</td><td><span class='tag'>AI agent</span></td></tr><tr><th scope=row>Approval</th><td>An email carries the download link plus approve and reject links. The run waits up to 7 days. Approving does not deploy anything yet.</td><td><span class='tag'>Human</span></td></tr></tbody></table></div></section>
+</main>
